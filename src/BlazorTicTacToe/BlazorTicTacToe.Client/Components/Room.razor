@@ -1,0 +1,121 @@
+﻿@if (CurrentRoom is not null)
+{
+    <h3 class="text-2xl font-bold py-2">@CurrentRoom.RoomName</h3>
+
+    if (CurrentRoom.Players.Count < 2)
+    {
+        <h4>Ждем, когда к нам присоединится другой игрок...</h4>
+    }
+
+    if (!CurrentRoom.Game.GameStarted && CurrentRoom.Game.PlayerXId != myPlayerId &&
+        CurrentRoom.Players.Count == 2)
+    {
+        <h4>Ждем, пока другой игрок начнет игру...</h4>
+    }
+
+    if (CurrentRoom.Game.GameOver && !CurrentRoom.Game.IsDraw)
+    {
+        <h4>Игра закончена! Победитель: @CurrentRoom.Game.Winner</h4>
+    }
+
+    if (CurrentRoom.Game.GameOver && CurrentRoom.Game.IsDraw)
+    {
+        <h4>Игра закончена! Ничья</h4>
+    }
+
+    if ((!CurrentRoom.Game.GameStarted || CurrentRoom.Game.GameOver)
+        && CurrentRoom.Game.PlayerXId == myPlayerId
+        && CurrentRoom.Players.Count == 2)
+    {
+        <button @onclick="StartGame" class="m-2 w-40 h-10 rounded-md py-2 bg-blue-400 text-white">StartGame</button>
+    }
+
+    if (CurrentRoom.Game.GameStarted)
+    {
+        <h4>It`s @CurrentRoom.Game.CurrentPlayerSymbol's Turn</h4>
+
+        <br />
+
+        <span>Текущие игроки: @CurrentRoom.Players[0].Name (X), @CurrentRoom.Players[1].Name (0)</span>
+
+        <div class="flex justify-center items-center p-4">
+            <table class="tic-tac-toe">
+                @for (int row = 0; row < 3; row++)
+                {
+                    <tr>
+                        @for (int col = 0; col < 3; col++)
+                        {
+                            var r = row;
+                            var c = col;
+                            <td @onclick="() => MakeMove(r, c)">
+                                @CurrentRoom.Game.Board[r][c]
+                            </td>
+                        }
+                    </tr>
+                }
+            </table>
+        </div>
+        @if (!IsMyTurn() && !CurrentRoom.Game.GameOver)
+        {
+            <p>Пожалуйста, подождите, пока другой игрок сделает ход.</p>
+        }
+    }
+}
+
+@code {
+
+    [CascadingParameter] public HubConnection? HubConnection { get; set; }
+
+    [Parameter] public GameRoom? CurrentRoom { get; set; }
+
+    private string? myPlayerId = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (CurrentRoom is null || HubConnection is null || HubConnection.ConnectionId is null)
+            return;
+
+        myPlayerId = HubConnection.ConnectionId;
+
+        HubConnection.On<Player>("PlayerJoined", player =>
+        {
+            CurrentRoom.Players.Add(player);
+            StateHasChanged();
+        });
+
+        HubConnection.On<GameRoom>("UpdateGame", serverRoom =>
+        {
+            CurrentRoom = serverRoom;
+            StateHasChanged();
+        });
+    }
+
+    async Task StartGame()
+    {
+        if (HubConnection is null || CurrentRoom is null)
+            return;
+
+        await HubConnection.InvokeAsync("StartGame", CurrentRoom.RoomId);
+    }
+
+    private async Task MakeMove(int row, int col)
+    {
+        if (IsMyTurn() && CurrentRoom is not null
+                       && CurrentRoom.Game.GameStarted
+                       && !CurrentRoom.Game.GameOver
+                       && HubConnection is not null)
+        {
+            await HubConnection.InvokeAsync("MakeMove", CurrentRoom.RoomId, row, col, myPlayerId);
+        }
+
+    }
+
+    private bool IsMyTurn()
+    {
+        if (CurrentRoom is not null)
+        {
+            return myPlayerId == CurrentRoom.Game.CurrentPlayerId;
+        }
+        return false;
+    }
+}
